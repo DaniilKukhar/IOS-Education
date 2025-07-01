@@ -15,6 +15,7 @@ class ViewController: UIViewController {
     private var result: Double?
     private var currentOperator: CalcButton?
     private var shouldResetInput: Bool = false
+    private var hasCalculatedResult: Bool = false
     private let buttons: [CalcButton] = [
         .clear, .negate, .percent, .divide,
         .seven, .eight, .nine, .multiply,
@@ -128,6 +129,8 @@ class ViewController: UIViewController {
         
         NSLayoutConstraint.activate([
             scrollSubviewExpressionLabel.heightAnchor.constraint(equalToConstant: 47),
+            scrollSubviewExpressionLabel.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor),
+            scrollSubviewExpressionLabel.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor),
             expressionLabel.topAnchor.constraint(equalTo: scrollSubviewExpressionLabel.topAnchor),
             expressionLabel.bottomAnchor.constraint(equalTo: scrollSubviewExpressionLabel.bottomAnchor),
             expressionLabel.leadingAnchor.constraint(equalTo: scrollSubviewExpressionLabel.leadingAnchor),
@@ -203,6 +206,8 @@ extension ViewController: UICollectionViewDelegateFlowLayout {
 // MARK: - Logic
 extension ViewController {
     private func handleInput(_ button: CalcButton) {
+        print("Handling input: \(button.rawValue)")
+        
         switch button {
         case .clear:
             clearAll()
@@ -222,15 +227,14 @@ extension ViewController {
             appendNumber(button.rawValue)
         }
         
-        if button != .clear {
+        if button != .clear && button != .delete {
             updateDisplay()
+        } else if button == .delete {
+            updateDisplayText()
         }
     }
     
     private func appendToExpression(_ value: String) {
-        if shouldResetInput {
-            expression = ""
-        }
         expression += value
         displayLabel.text = expression
     }
@@ -240,7 +244,7 @@ extension ViewController {
         expression = ""
         currentOperator = nil
         result = nil
-        shouldResetInput = false
+        hasCalculatedResult = false
         updateDisplayImmediate()
     }
     
@@ -249,7 +253,7 @@ extension ViewController {
         expression = ""
         currentOperator = nil
         result = nil
-        shouldResetInput = false
+        hasCalculatedResult = false
     }
     
     private func updateDisplayImmediate() {
@@ -259,95 +263,133 @@ extension ViewController {
     }
     
     private func deleteLast() {
-        if shouldResetInput {
-            clearAllSilent()
-            currentInput = "0"
-            shouldResetInput = false
+        if hasCalculatedResult {
             return
         }
+        
         currentInput = String(currentInput.dropLast())
+        print("Current Input: \(currentInput)")
         if currentInput.isEmpty {
             currentInput = "0"
         }
+        
+        if !expression.isEmpty {
+            expression = String(expression.dropLast())
+            print("Expression input: \(expression)")
+        }
+        
+        updateDisplayText()
     }
     
     private func percentValue() {
-        if let value = Double(currentInput) {
+        let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
+        if let value = Double(cleanedInput) {
             let percent = value / 100
             currentInput = format(percent)
             updateDisplayText()
-            shouldResetInput = true
+            
+            if hasCalculatedResult {
+                result = percent
+            }
         }
     }
     
     private func negateValue() {
-        if shouldResetInput {
-            shouldResetInput = false
-        }
-        
-        if let doubleValue = Double(currentInput) {
-            let result = -doubleValue
-            if expression.hasSuffix(currentInput) {
-                expression = String(expression.dropLast(currentInput.count))
+        let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
+        if let doubleValue = Double(cleanedInput) {
+            let negatedResult = -doubleValue
+            currentInput = format(negatedResult)
+            
+            if hasCalculatedResult {
+                result = negatedResult
+                currentInput = String(negatedResult)
+                expression = formatInput(currentInput)
+                displayLabel.text = formatInput(currentInput)
+                hasCalculatedResult = false
+            } else {
+                if expression.hasSuffix(format(doubleValue)) {
+                    expression = String(expression.dropLast(format(doubleValue).count))
+                }
+                appendToExpression(currentInput)
             }
-            currentInput = format(result)
-            appendToExpression(currentInput)
         }
     }
     
     private func addDot() {
-        if shouldResetInput {
+        if hasCalculatedResult {
+            startNewCalculation()
             currentInput = "0."
-            shouldResetInput = false
-            return
-        }
-        if !currentInput.contains(".") {
+            appendToExpression("0.")
+        } else if !currentInput.contains(".") {
             currentInput += "."
             appendToExpression(".")
         }
     }
     
     private func appendNumber(_ value: String) {
-        if shouldResetInput {
-            clearAllSilent()
+        if hasCalculatedResult {
+            startNewCalculation()
             currentInput = value
-            shouldResetInput = false
         } else if currentInput == "0" {
             currentInput = value
         } else {
             currentInput += value
         }
+        
         appendToExpression(value)
     }
     
     private func applyOperator(_ newOperator: CalcButton) {
-        shouldResetInput = false
-        let cleanedInput = currentInput.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: "")
+        if hasCalculatedResult {
+            if let resultValue = result {
+                let rawValue = String(resultValue)
+                currentInput = rawValue
+                expression = format(resultValue)
+                hasCalculatedResult = false
+                expressionLabel.text = ""
+            }
+        }
+
+        let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
+        
         if let value = Double(cleanedInput) {
             if result == nil {
                 result = value
             } else if let currentOperator = self.currentOperator, let currentResult = result {
-                result = perform(currentOperator, currentResult, value)
+                let cleanedCurrentInput = currentInput.replacingOccurrences(of: ",", with: "")
+                result = perform(currentOperator, currentResult, Double(cleanedCurrentInput) ?? 0)
+                currentInput = String(result!)
             }
+
             currentOperator = newOperator
+            appendToExpression(newOperator.rawValue)
             currentInput = "0"
-            appendToExpression("\(newOperator.rawValue)")
         }
     }
     
     private func calculate() {
-        let cleanedInput = currentInput.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: "")
-        
+        let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
         guard let lhs = result,
               let rhs = Double(cleanedInput),
               let currentOperator = self.currentOperator else { return }
+        
         let final = perform(currentOperator, lhs, rhs)
+        
         expressionLabel.text = expression
-        currentInput = String(final)
+        
+        result = final
+        currentInput = format(final)
         displayLabel.text = formatInput(currentInput)
-        result = nil
         self.currentOperator = nil
-        shouldResetInput = true
+        hasCalculatedResult = true
+    }
+    
+    private func startNewCalculation() {
+        expression = ""
+        result = nil
+        currentOperator = nil
+        hasCalculatedResult = false
+        expressionLabel.text = ""
     }
     
     private func perform(_ currentOperator: CalcButton, _ lhs: Double, _ rhs: Double) -> Double {
@@ -362,7 +404,6 @@ extension ViewController {
     
     private func updateDisplayText() {
         displayLabel.text = formatInput(currentInput)
-        updateDisplay()
     }
     
     private func updateDisplay(scrollToStart: Bool = false) {

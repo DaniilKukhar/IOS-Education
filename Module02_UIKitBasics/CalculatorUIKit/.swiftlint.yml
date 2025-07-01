@@ -1,0 +1,17 @@
+disabled_rules:
+  - force_cast
+  - force_unwrapping
+  - line_length
+  - trailing_whitespace
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - no_extension_access_modifier
+
+excluded:
+  - Carthage
+  - Pods
+  - Scripts
+  - fastlane
+  - build

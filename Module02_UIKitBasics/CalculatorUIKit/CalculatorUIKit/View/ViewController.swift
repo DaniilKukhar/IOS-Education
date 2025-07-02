@@ -96,6 +96,18 @@ class ViewController: UIViewController {
         return collectionView
     }()
     
+    // MARK: - Display Value with didSet
+    private var displayValue: String = "0" {
+        didSet {
+            let cleaned = displayValue.replacingOccurrences(of: ",", with: "")
+            if let doubleValue = Double(cleaned) {
+                displayLabel.text = formatNumber(doubleValue)
+            } else {
+                displayLabel.text = displayValue
+            }
+        }
+    }
+    
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -236,7 +248,30 @@ extension ViewController {
     
     private func appendToExpression(_ value: String) {
         expression += value
-        displayLabel.text = expression
+        
+        let tokens = tokenizeExpression(expression)
+        
+        let formattedTokens = tokens.map { token -> String in
+            if let number = Double(token.replacingOccurrences(of: ",", with: "")) {
+                return numberFormatter.string(from: NSNumber(value: number)) ?? token
+            }
+            return token
+        }
+      
+        displayValue = formattedTokens.joined()
+    }
+
+    private func tokenizeExpression(_ expression: String) -> [String] {
+        // Патерн шукає числа з плаваючою точкою або оператори
+        let pattern = #"(\d+(?:\.\d+)?|[+\-×÷])"#
+        do {
+            let regex = try NSRegularExpression(pattern: pattern, options: [])
+            let matches = regex.matches(in: expression, range: NSRange(expression.startIndex..., in: expression))
+            return matches.map { String(expression[Range($0.range, in: expression)!]) }
+        } catch {
+            print("Invalid regex: \(error)")
+            return []
+        }
     }
     
     private func clearAll() {
@@ -257,35 +292,55 @@ extension ViewController {
     }
     
     private func updateDisplayImmediate() {
-        displayLabel.text = "0"
+        displayValue = "0"
         expressionLabel.text = ""
         scrollSubviewDisplayLabel.setContentOffset(CGPoint(x: 0, y: 0), animated: false)
     }
     
     private func deleteLast() {
         if hasCalculatedResult {
+            if currentInput != "0" {
+                clearAll()
+            }
             return
         }
         
-        currentInput = String(currentInput.dropLast())
-        print("Current Input: \(currentInput)")
-        if currentInput.isEmpty {
+        if !currentInput.isEmpty && currentInput != "0" {
+            currentInput = String(currentInput.dropLast())
+            if currentInput.isEmpty {
+                currentInput = "0"
+            }
+        } else {
             currentInput = "0"
         }
         
         if !expression.isEmpty {
-            expression = String(expression.dropLast())
-            print("Expression input: \(expression)")
+            let lastChar = String(expression.last!)
+            let operators = ["+", "-", "×", "÷", "*", "/"]
+            
+            if operators.contains(lastChar) {
+                expression = String(expression.dropLast())
+                currentOperator = nil
+            } else {
+                expression = String(expression.dropLast())
+            }
         }
-        
-        updateDisplayText()
     }
     
     private func percentValue() {
         let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
         if let value = Double(cleanedInput) {
             let percent = value / 100
-            currentInput = format(percent)
+            let formattedPercent = formatNumber(percent)
+            
+            currentInput = formattedPercent
+            
+            let cleanedExpression = expression.replacingOccurrences(of: ",", with: "")
+            if cleanedExpression.hasSuffix(cleanedInput) {
+                expression = String(expression.dropLast(cleanedInput.count))
+            }
+            appendToExpression(formattedPercent)
+            
             updateDisplayText()
             
             if hasCalculatedResult {
@@ -293,22 +348,24 @@ extension ViewController {
             }
         }
     }
-    
+
     private func negateValue() {
         let cleanedInput = currentInput.replacingOccurrences(of: ",", with: "")
         if let doubleValue = Double(cleanedInput) {
             let negatedResult = -doubleValue
-            currentInput = format(negatedResult)
+            let formattedNegated = formatNumber(negatedResult)
+            currentInput = formattedNegated
             
             if hasCalculatedResult {
                 result = negatedResult
-                currentInput = String(negatedResult)
-                expression = formatInput(currentInput)
-                displayLabel.text = formatInput(currentInput)
+                currentInput = formattedNegated
+                expression = formattedNegated
+                displayValue = currentInput
                 hasCalculatedResult = false
             } else {
-                if expression.hasSuffix(format(doubleValue)) {
-                    expression = String(expression.dropLast(format(doubleValue).count))
+                let cleanedExpression = expression.replacingOccurrences(of: ",", with: "")
+                if cleanedExpression.hasSuffix(cleanedInput) {
+                    expression = String(expression.dropLast(cleanedInput.count))
                 }
                 appendToExpression(currentInput)
             }
@@ -344,7 +401,7 @@ extension ViewController {
             if let resultValue = result {
                 let rawValue = String(resultValue)
                 currentInput = rawValue
-                expression = format(resultValue)
+                expression = formatNumber(resultValue)
                 hasCalculatedResult = false
                 expressionLabel.text = ""
             }
@@ -378,8 +435,8 @@ extension ViewController {
         expressionLabel.text = expression
         
         result = final
-        currentInput = format(final)
-        displayLabel.text = formatInput(currentInput)
+        currentInput = final.formatted()
+        displayValue = currentInput
         self.currentOperator = nil
         hasCalculatedResult = true
     }
@@ -403,7 +460,7 @@ extension ViewController {
     }
     
     private func updateDisplayText() {
-        displayLabel.text = formatInput(currentInput)
+        displayValue = currentInput
     }
     
     private func updateDisplay(scrollToStart: Bool = false) {
@@ -412,16 +469,8 @@ extension ViewController {
         scrollSubviewDisplayLabel.setContentOffset(CGPoint(x: offsetX, y: 0), animated: false)
     }
     
-    private func format(_ value: Double) -> String {
+    private func formatNumber(_ value: Double) -> String {
         return numberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
-    
-    private func formatInput(_ value: String) -> String {
-        let cleaned = value.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: "")
-        if let doubleValue = Double(cleaned) {
-            return numberFormatter.string(from: NSNumber(value: doubleValue)) ?? value
-        }
-        return value
     }
 }
 
